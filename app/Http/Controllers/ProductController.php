@@ -9,7 +9,7 @@ use Illuminate\Validation\ValidationException;
 
 class ProductController extends Controller
 {
-    // Define cache duration (10 minutes)
+    // Defined cache duration (10 minutes)
     protected $cacheDuration = 600; // 10 minutes in seconds
 
     // Fetch data from external API
@@ -45,7 +45,8 @@ class ProductController extends Controller
 
         // Check for any API fetch errors
         if (!is_array($products)) {
-            return $products; // Return error response from fetchProducts
+            // Return error response from fetchProducts
+            return $products; 
         }
 
         return response()->json($products);
@@ -170,4 +171,35 @@ class ProductController extends Controller
 
         return response()->json($sorted->values(), 200);
     }
+
+    //Definition of bulk operation for update
+    public function bulkUpdate(Request $request)
+{
+    $request->validate([
+        'updates' => 'required|array',
+        'updates.*.id' => 'required|integer',
+        'updates.*.price' => 'nullable|numeric|min:0',
+        'updates.*.category' => 'nullable|string|min:1',
+    ]);
+
+    $products = collect($this->fetchProducts()['products']);
+    $updates = $request->input('updates');
+
+    foreach ($updates as $update) {
+        $product = $products->where('id', $update['id'])->first();
+
+        if ($product) {
+            if (isset($update['price'])) {
+                $product['price'] = $update['price'];
+            }
+            if (isset($update['category'])) {
+                $product['category'] = $update['category'];
+            }
+        }
+    }
+
+    // Return the updated products
+    return response()->json($products->values(), 200);
+}
+
 }
