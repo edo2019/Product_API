@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Pagination\LengthAwarePaginator;
+
 
 class ProductController extends Controller
 {
@@ -39,18 +41,59 @@ class ProductController extends Controller
     }
 
     // Show the list of all products
-    public function list()
+    // public function list()
+    // {
+    //     $products = $this->fetchProducts();
+
+    //     // Check for any API fetch errors
+    //     if (!is_array($products)) {
+    //         // Return error response from fetchProducts
+    //         return $products; 
+    //     }
+
+    //     return response()->json($products);
+    // }
+   
+     // Show the list of all products with pagination
+    public function list(Request $request)
     {
-        $products = $this->fetchProducts();
-
+        $response = $this->fetchProducts();
+        
         // Check for any API fetch errors
-        if (!is_array($products)) {
-            // Return error response from fetchProducts
-            return $products; 
+        if (!is_array($response)) {
+            return $response; // Return error response from fetchProducts
         }
-
-        return response()->json($products);
+    
+        // Extract the products array from the API response
+        $products = collect($response['products']);
+    
+        // Pagination settings
+        $page = $request->input('page', 1); // Default to page 1
+        $perPage = $request->input('per_page', 10); // Default to 10 items per page
+    
+        // Manually paginate the products
+        $paginatedProducts = new LengthAwarePaginator(
+            $products->forPage($page, $perPage), // Slice the products for the current page
+            $products->count(), // Total number of products
+            $perPage, // Number of items per page
+            $page, // Current page
+            ['path' => $request->url(), 'query' => $request->query()] // Preserve query parameters
+        );
+    
+        // Return the paginated data as JSON
+        return response()->json([
+            'products' => $paginatedProducts->items(), // Paginated products
+            'current_page' => $paginatedProducts->currentPage(),
+            'last_page' => $paginatedProducts->lastPage(),
+            'per_page' => $paginatedProducts->perPage(),
+            'total' => $paginatedProducts->total(),
+            'next_page_url' => $paginatedProducts->nextPageUrl(),
+            'prev_page_url' => $paginatedProducts->previousPageUrl(),
+        ]);
     }
+    
+   
+
 
     // Search products by name (case-insensitive, partial match)
     public function search(Request $request)
