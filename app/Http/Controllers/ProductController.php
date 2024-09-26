@@ -71,18 +71,25 @@ class ProductController extends Controller
         $page = $request->input('page', 1); // Default to page 1
         $perPage = $request->input('per_page', 10); // Default to 10 items per page
     
-        // Manually paginate the products
+        // paginatION OF the products manually
         $paginatedProducts = new LengthAwarePaginator(
-            $products->forPage($page, $perPage), // Slice the products for the current page
-            $products->count(), // Total number of products
-            $perPage, // Number of items per page
-            $page, // Current page
-            ['path' => $request->url(), 'query' => $request->query()] // Preserve query parameters
+            // Slice the products for the current page
+            $products->forPage($page, $perPage),
+            // Total number of products
+            $products->count(), 
+            // Number of items per page
+            $perPage,
+            // Current page
+            $page, 
+            // Preserve query parameters
+            ['path' => $request->url(), 'query' => $request->query()] 
+            
         );
     
         // Return the paginated data as JSON
         return response()->json([
-            'products' => $paginatedProducts->items(), // Paginated products
+            // Paginated products
+            'products' => $paginatedProducts->items(), 
             'current_page' => $paginatedProducts->currentPage(),
             'last_page' => $paginatedProducts->lastPage(),
             'per_page' => $paginatedProducts->perPage(),
