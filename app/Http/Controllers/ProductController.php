@@ -3,113 +3,83 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Log;
 use App\Models\Product;
-
 
 class ProductController extends Controller
 {
-    // Defined cache duration (10 minutes)
-    protected $cacheDuration = 600; // 10 minutes in seconds
+   // Fetch data from external API
+   private function fetchProducts()
+   {
+       // Check if products already exist in the database
+       if (Product::count() > 0) {
+           Log::info('Fetched products from the database.', ['count' => Product::count()]);
+           return Product::all(); // Fetch products from the database
+       }
 
-    // Fetch data from external API
-    private function fetchProducts()
-{
-    // Check if products already exist in the database
-    if (Product::count() > 0) {
-        return Product::all(); // Fetch products from the database
-    }
+       // Fetch data from external API
+       $response = Http::withOptions(['verify' => false])->get('https://dummyjson.com/products');
 
-    // Fetch data from external API
-    $response = Http::withOptions(['verify' => false])->get('https://dummyjson.com/products');
+       // Handle failed requests
+       if ($response->failed()) {
+           Log::error('Failed to retrieve data from external API.', ['status' => $response->status(), 'body' => $response->body()]);
+           return response()->json(['error' => 'Failed to retrieve data from external API'], 500);
+       }
 
-    // Handle failed requests
-    if ($response->failed()) {
-        return response()->json(['error' => 'Failed to retrieve data from external API'], 500);
-    }
+       // Extract the products array from the API response
+       $products = $response->json()['products'];
 
-    // Extract the products array from the API response
-    $products = $response->json()['products'];
+       // Log the number of products fetched from the API
+       Log::info('Fetched products from external API.', ['count' => count($products)]);
 
-    // Insert only the selected fields into the database
-    foreach ($products as $product) {
-        Product::create([
-            'title' => $product['title'],
-            'price' => $product['price'],
-            'description' => $product['description'],
-            'category' => $product['category'],
-        ]);
-    }
+       // Insert only the selected fields into the database
+       foreach ($products as $product) {
+           try {
+               Product::create([
+                   'title' => $product['title'],
+                   'price' => $product['price'],
+                   'description' => $product['description'],
+                   'category' => $product['category'],
+               ]);
+           } catch (\Exception $e) {
+               // Log any errors that occur during insertion
+               Log::error('Error inserting product into database.', [
+                   'error' => $e->getMessage(),
+                   'product' => $product
+               ]);
+           }
+       }
 
-    // Return all products from the database
-    return Product::all();
-}
+       // Return all products from the database
+       return Product::all();
+   }
 
 
-    // Show the list of all products
-    // public function list()
-    // {
-    //     $products = $this->fetchProducts();
-
-    //     // Check for any API fetch errors
-    //     if (!is_array($products)) {
-    //         // Return error response from fetchProducts
-    //         return $products; 
-    //     }
-
-    //     return response()->json($products);
-    // }
+   public function list(Request $request)
+   {
+       // Fetch products from the database or external API
+       $products = $this->fetchProducts(); // Call the fetch method here
    
-     // Show the list of all products with pagination
-    public function list(Request $request)
-    {
-        $response = $this->fetchProducts();
-        
-        // Check for any API fetch errors
-        if (!is_array($response)) {
-            return $response; // Return error response from fetchProducts
-        }
-    
-        // Extract the products array from the API response
-        $products = collect($response['products']);
-    
-        // Pagination settings
-        $page = $request->input('page', 1); // Default to page 1
-        $perPage = $request->input('per_page', 10); // Default to 10 items per page
-    
-        // paginatION OF the products manually
-        $paginatedProducts = new LengthAwarePaginator(
-            // Slice the products for the current page
-            $products->forPage($page, $perPage),
-            // Total number of products
-            $products->count(), 
-            // Number of items per page
-            $perPage,
-            // Current page
-            $page, 
-            // Preserve query parameters
-            ['path' => $request->url(), 'query' => $request->query()] 
-            
-        );
-    
-        // Return the paginated data as JSON
-        return response()->json([
-            // Paginated products
-            'products' => $paginatedProducts->items(), 
-            'current_page' => $paginatedProducts->currentPage(),
-            'last_page' => $paginatedProducts->lastPage(),
-            'per_page' => $paginatedProducts->perPage(),
-            'total' => $paginatedProducts->total(),
-            'next_page_url' => $paginatedProducts->nextPageUrl(),
-            'prev_page_url' => $paginatedProducts->previousPageUrl(),
-        ]);
-    }
-    
+       // Pagination settings
+       $page = $request->input('page', 1); // Default to page 1
+       $perPage = $request->input('per_page', 10); // Default to 10 items per page
    
-
+       // Paginate the products
+       $paginatedProducts = new LengthAwarePaginator(
+           $products->forPage($page, $perPage),
+           $products->count(),
+           $perPage,
+           $page,
+           ['path' => $request->url(), 'query' => $request->query()]
+       );
+   
+       // Return the paginated data as JSON
+       return response()->json($paginatedProducts);
+   }
+   
 
     // Search products by name (case-insensitive, partial match)
     public function search(Request $request)
@@ -118,14 +88,12 @@ class ProductController extends Controller
             'name' => 'required|string|min:1',
         ]);
 
-        $products = collect($this->fetchProducts()['products']);
         $keyword = strtolower($request->input('name'));
 
-        $filtered = $products->filter(function ($product) use ($keyword) {
-            return strpos(strtolower($product['title']), $keyword) !== false;
-        });
+        // Search for products using a database query
+        $products = Product::where('title', 'like', '%' . $keyword . '%')->get();
 
-        return response()->json($filtered->values(), 200);
+        return response()->json($products);
     }
 
     // Filter products by category and price range
@@ -137,15 +105,16 @@ class ProductController extends Controller
             'max_price' => 'numeric|min:0|gte:min_price',
         ]);
 
-        $products = collect($this->fetchProducts()['products']);
         $category = strtolower($request->input('category'));
         $minPrice = $request->input('min_price', 0);
         $maxPrice = $request->input('max_price', PHP_INT_MAX);
 
-        $filtered = $products->where('category', $category)
-            ->whereBetween('price', [$minPrice, $maxPrice]);
+        // Filter using a database query
+        $products = Product::where('category', $category)
+            ->whereBetween('price', [$minPrice, $maxPrice])
+            ->get();
 
-        return response()->json($filtered->values(), 200);
+        return response()->json($products);
     }
 
     // Sort products by various fields (ascending or descending)
@@ -156,29 +125,28 @@ class ProductController extends Controller
             'order' => 'required|in:asc,desc',
         ]);
 
-        $products = collect($this->fetchProducts()['products']);
         $sortBy = $request->input('sort_by', 'price');
         $order = $request->input('order', 'asc');
 
-        $sorted = $products->sortBy($sortBy, SORT_REGULAR, $order == 'desc');
+        // Sort using a database query
+        $products = Product::orderBy($sortBy, $order)->get();
 
-        return response()->json($sorted->values(), 200);
+        return response()->json($products);
     }
 
     // Get product details by ID
     public function show($id)
     {
-        $products = collect($this->fetchProducts()['products']);
-        $product = $products->where('id', $id)->first();
+        $product = Product::find($id);
 
         if (!$product) {
             return response()->json(['error' => 'Product not found'], 404);
         }
 
-        return response()->json($product, 200);
+        return response()->json($product);
     }
 
-    // Update product price locally
+    // Update product price
     public function updatePrice(Request $request, $id)
     {
         // Validate price input
@@ -186,17 +154,17 @@ class ProductController extends Controller
             'price' => 'required|numeric|min:0',
         ]);
 
-        $products = collect($this->fetchProducts()['products']);
-        $product = $products->where('id', $id)->first();
+        $product = Product::find($id);
 
         if (!$product) {
             return response()->json(['error' => 'Product not found'], 404);
         }
 
-        // Update price locally (not in external API)
-        $product['price'] = $request->input('price');
+        // Update the price
+        $product->price = $request->input('price');
+        $product->save();
 
-        return response()->json($product, 200);
+        return response()->json($product);
     }
 
     // Complex query (search, filter, sort)
@@ -211,54 +179,32 @@ class ProductController extends Controller
             'order' => 'nullable|in:asc,desc',
         ]);
 
-        $products = collect($this->fetchProducts()['products']);
-        $name = strtolower($request->input('name'));
-        $category = strtolower($request->input('category'));
-        $minPrice = $request->input('min_price', 0);
-        $maxPrice = $request->input('max_price', PHP_INT_MAX);
-        $sortBy = $request->input('sort_by', 'price');
-        $order = $request->input('order', 'asc');
+        $query = Product::query();
 
-        $filtered = $products->filter(function ($product) use ($name, $category, $minPrice, $maxPrice) {
-            return (!$name || strpos(strtolower($product['title']), $name) !== false)
-                && (!$category || $product['category'] === $category)
-                && $product['price'] >= $minPrice
-                && $product['price'] <= $maxPrice;
-        });
-
-        $sorted = $filtered->sortBy($sortBy, SORT_REGULAR, $order == 'desc');
-
-        return response()->json($sorted->values(), 200);
-    }
-
-    //Definition of bulk operation for update
-    public function bulkUpdate(Request $request)
-{
-    $request->validate([
-        'updates' => 'required|array',
-        'updates.*.id' => 'required|integer',
-        'updates.*.price' => 'nullable|numeric|min:0',
-        'updates.*.category' => 'nullable|string|min:1',
-    ]);
-
-    $products = collect($this->fetchProducts()['products']);
-    $updates = $request->input('updates');
-
-    foreach ($updates as $update) {
-        $product = $products->where('id', $update['id'])->first();
-
-        if ($product) {
-            if (isset($update['price'])) {
-                $product['price'] = $update['price'];
-            }
-            if (isset($update['category'])) {
-                $product['category'] = $update['category'];
-            }
+        // Apply search
+        if ($request->filled('name')) {
+            $query->where('title', 'like', '%' . strtolower($request->input('name')) . '%');
         }
+
+        // Apply category filter
+        if ($request->filled('category')) {
+            $query->where('category', strtolower($request->input('category')));
+        }
+
+        // Apply price range filter
+        $query->whereBetween('price', [
+            $request->input('min_price', 0),
+            $request->input('max_price', PHP_INT_MAX)
+        ]);
+
+        // Apply sorting
+        if ($request->filled('sort_by') && $request->filled('order')) {
+            $query->orderBy($request->input('sort_by'), $request->input('order'));
+        }
+
+        // Get the filtered, sorted results
+        $products = $query->get();
+
+        return response()->json($products);
     }
-
-    // Return the updated products
-    return response()->json($products->values(), 200);
-}
-
 }
