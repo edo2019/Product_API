@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Pagination\LengthAwarePaginator;
+use App\Models\Product;
 
 
 class ProductController extends Controller
@@ -16,29 +17,37 @@ class ProductController extends Controller
 
     // Fetch data from external API
     private function fetchProducts()
-    {
-        // Check if data is cached
-        if (Cache::has('products')) {
-            return Cache::get('products');
-        }
-
-        // Fetch data from external API if not cached
-        //$response = Http::get('https://dummyjson.com/products');
-
-        //disable the SSL
-        $response = Http::withOptions(['verify' => false])->get('https://dummyjson.com/products');
-
-        // Handle failed requests
-        if ($response->failed()) {
-            return response()->json(['error' => 'Failed to retrieve data from external API'], 500);
-        }
-
-        // Cache the data for 10 minutes
-        $products = $response->json();
-        Cache::put('products', $products, $this->cacheDuration);
-
-        return $products;
+{
+    // Check if products already exist in the database
+    if (Product::count() > 0) {
+        return Product::all(); // Fetch products from the database
     }
+
+    // Fetch data from external API
+    $response = Http::withOptions(['verify' => false])->get('https://dummyjson.com/products');
+
+    // Handle failed requests
+    if ($response->failed()) {
+        return response()->json(['error' => 'Failed to retrieve data from external API'], 500);
+    }
+
+    // Extract the products array from the API response
+    $products = $response->json()['products'];
+
+    // Insert only the selected fields into the database
+    foreach ($products as $product) {
+        Product::create([
+            'title' => $product['title'],
+            'price' => $product['price'],
+            'description' => $product['description'],
+            'category' => $product['category'],
+        ]);
+    }
+
+    // Return all products from the database
+    return Product::all();
+}
+
 
     // Show the list of all products
     // public function list()
