@@ -10,7 +10,7 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 
-
+//List of user Authentication routes
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
@@ -37,7 +37,6 @@ Route::middleware(['auth:sanctum','throttle:50,60'])->group(function () {
     // Update product price by ID
     Route::put('/products/{id}/price', [ProductController::class, 'updatePrice']);
     
-    // Additional complex queries 
     //bulk operations 
     Route::put('/products/bulk-update', [ProductController::class, 'bulkUpdate']);
 
