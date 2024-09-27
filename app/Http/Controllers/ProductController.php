@@ -81,20 +81,32 @@ class ProductController extends Controller
    }
    
 
-    // Search products by name (case-insensitive, partial match)
-    public function search(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|min:1',
-        ]);
+   // Search products by name (case-insensitive, partial match)
+// Search products by name (case-insensitive, partial match)
+public function search(Request $request)
+{
+    $request->validate([
+        'name' => 'required|string|min:1',
+    ]);
 
-        $keyword = strtolower($request->input('name'));
+    $keyword = strtolower($request->input('name'));
 
-        // Search for products using a database query
-        $products = Product::where('title', 'like', '%' . $keyword . '%')->get();
+    // Log the search keyword
+    Log::info('Searching for products with keyword: ' . $keyword);
 
-        return response()->json($products);
+    // Search for products using a database query
+    $products = Product::where('title', 'like', '%' . $keyword . '%')->get();
+
+    // Log the count of products found
+    Log::info('Number of products found: ' . $products->count());
+
+    if ($products->isEmpty()) {
+        return response()->json(['error' => 'Product not found'], 404);
     }
+
+    return response()->json($products);
+}
+
 
     // Filter products by category and price range
     public function filter(Request $request)
